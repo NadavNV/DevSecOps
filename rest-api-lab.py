@@ -7,7 +7,7 @@ import csv
 import datetime
 import logging
 import sys
-import getopt
+import argparse
 
 
 def ex1():
@@ -156,20 +156,24 @@ async def write_user_to_files(user: dict, nationality: str) -> None:
         logger.info("Finished writing user %s", user['name'])
 
 
-async def get_users_of_nationality(nationality: str, session: aiohttp.ClientSession):
+async def get_users_of_nationality(nationality: str, session: aiohttp.ClientSession, raw_data: bool):
     logger.info("Sending GET request to %s", f'https://randomuser.me/api/?results=20&nat={nationality}')
     async with session.get(f'https://randomuser.me/api/?results=20&nat={nationality}') as response:
         response.raise_for_status()
         logger.info("Got response [%s] for URL: %s", response.status,
                     f'https://randomuser.me/api/?results=20&nat={nationality}')
+        if raw_data:
+            async with aiofiles.open(f'users_{nationality}.json', 'w', encoding='utf-8') as f:
+                raw_json = await response.text()
+                await f.write(raw_json)
         data = await response.json()
         for user in data['results']:
             yield user
 
 
-async def write_nation_to_files(nation: str, session: aiohttp.ClientSession) -> None:
+async def write_nation_to_files(nation: str, session: aiohttp.ClientSession, raw_data: bool) -> None:
     try:
-        users = get_users_of_nationality(nation, session)
+        users = get_users_of_nationality(nation, session, raw_data)
         async for user in users:
             user_trimmed = {
                 'name': f'{user['name']['first']} {user['name']['last']}',
@@ -196,42 +200,94 @@ async def write_nation_to_files(nation: str, session: aiohttp.ClientSession) -> 
         return None
 
 
+def count_genders(data: list) -> tuple:
+    male, female = 0, 0
+    for user in data:
+        for key, value in user.items():
+            if key == 'gender':
+                if value == 'male':
+                    male += 1
+                else:
+                    female += 1
+    return male, female
+
+
+def get_age_statistics(data: list) -> tuple:
+    min_age, max_age, average = float('inf'), -float('inf'), 0
+    for user in data:
+        for key, value in user.items():
+            if key == 'age':
+                value = int(value)
+                average += value
+                min_age = min(min_age, value)
+                max_age = max(max_age, value)
+    return min_age, max_age, average / len(data)
+
+
+def count_domains(data: list) -> dict:
+    domain_counts = {}
+    for user in data:
+        for key, value in user.items():
+            if key == 'email':
+                domain = value.split('@')[1]
+                if domain in domain_counts:
+                    domain_counts[domain] += 1
+                else:
+                    domain_counts[domain] = 1
+    return domain_counts
+
+
 async def challenge2(nations: list, raw_data: bool = False):
     with open('master.csv', 'w', newline='') as master:
         csv.writer(master).writerow(['nationality', 'name', 'gender', 'age', 'email'])
     async with aiohttp.ClientSession() as session:
-        nationalities = ('AU, BR, CA, CH, DE, DK, ES, FI, FR, GB, IE, IN, IR,'
-                         'MX, NL, NO, NZ, RS, TR, UA, US').lower().split(',')
-        nationalities = [x.strip() for x in nationalities]
         tasks = []
-        for nation in nationalities:
+        for nation in nations:
             with open(f'users_{nation}.csv', 'w', newline='') as f:
                 csv.writer(f).writerow(['name', 'gender', 'age', 'email'])
-            tasks.append(write_nation_to_files(nation=nation, session=session))
+            tasks.append(write_nation_to_files(nation=nation, session=session, raw_data=raw_data))
         await asyncio.gather(*tasks)
+    nations_data = {}
+    for nation in nations:
+        nations_data[nation] = []
+        with open(f'users_{nation}.csv', 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                nations_data[nation].append(row)
+    with open('comparison.txt', 'w', encoding='utf-8') as f:
+        f.write("Gender Distribution\nNationality\tMale\tFemale\n")
+        lines = []
+        for nation in nations_data.keys():
+            male, female = count_genders(nations_data[nation])
+            lines.append(f'{nation.upper()}\t{male}\t{female}\n')
+        f.writelines(lines)
+
+        f.write('\nAge Statistics\nNationality\tMin\tMax\tAverage\n')
+        lines = []
+        for nation in nations_data.keys():
+            min_age, max_age, average = get_age_statistics(nations_data[nation])
+            lines.append(f'{nation.upper()}\t{min_age}\t{max_age}\t{average}\n')
+        f.writelines(lines)
+
+        f.write('\nEmail Domain Frequency\nNationality\tDomain\tCount\n')
+        lines = []
+        for nation in nations_data.keys():
+            domain_counts = count_domains(nations_data[nation])
+            for domain in domain_counts:
+                lines.append(f'{nation.upper()}\t{domain}\t{domain_counts[domain]}\n')
+        f.writelines(lines)
 
 
 if __name__ == "__main__":
     raw = False
-    arguments = sys.argv[1:]
-    options = 'rn:'
-    long_options = ['Raw', 'Nationalities']
-    try:
-        # Parsing argument
-        arguments, values = getopt.getopt(arguments, options, long_options)
-
-        # checking each argument
-        for currentArgument, currentValue in arguments:
-
-            if currentArgument in ("-r", "--Raw"):
-                raw = True
-            elif currentArgument in ("-n", "--Nationalities"):
-                print(("Enabling special output mode (% s)") % (currentValue))
-
-    except getopt.error as err:
-        # output error, and return with an error code
-        print(str(err))
-    nationalities = ['au', 'br', 'ca', 'ch', 'de', 'dk', 'es', 'fi', 'fr', 'gb', 'ie', 'in', 'ir', 'mx',
-                     'nl', 'no', 'nz', 'rs', 'tr', 'ua', 'us']
-
-    # asyncio.run(challenge2(raw_data=raw))
+    parser = argparse.ArgumentParser(
+        prog='C:\\Users\\User\\PycharmProjects\\DevSecOps\\rest-api-lab.py',
+        description='Aggregate user information from randomuser.me'
+    )
+    parser.add_argument('-r', '--Raw', action='store_true', dest='raw')
+    parser.add_argument('-n', '--Nationalities', nargs='+', dest='nationalities')
+    arguments = parser.parse_args(sys.argv[1:])
+    all_nationalities = ['au', 'br', 'ca', 'ch', 'de', 'dk', 'es', 'fi', 'fr', 'gb', 'ie', 'in', 'ir', 'mx',
+                         'nl', 'no', 'nz', 'rs', 'tr', 'ua', 'us']
+    nationalities = all_nationalities if arguments.nationalities is None else arguments.nationalities
+    asyncio.run(challenge2(nations=nationalities, raw_data=arguments.raw))
