@@ -23,6 +23,7 @@ def get_post_by_id(post_id):
 def validate_post(post: dict) -> bool:
     return 'title' in post and 'content' in post and 'author' in post
 
+
 @app.post('/posts')
 def add_post():
     global index
@@ -43,7 +44,6 @@ def add_post():
         return jsonify({'success': True, 'post': new_post}), 201
     else:
         return 'invalid data', 400
-
 
 
 if __name__ == "__main__":
