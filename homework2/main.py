@@ -46,7 +46,21 @@ def login():
 @app.get('/api/v1/ecs/clusters')
 def list_ecs_clusters():
     if utils.validate_credentials():
-        return utils.list_ecs_clusters()
+        try:
+            return utils.list_ecs_clusters()
+        except Exception as e:
+            return "An error occurred while fetching the data:\n" + str(e), 500
+    else:
+        return "Credentials expired, please log in again", 403
+
+
+@app.get('/api/v1/ecs/clusters/<cluster_name>/services')
+def list_ecs_clusters(cluster_name):
+    if utils.validate_credentials():
+        try:
+            return utils.list_ecs_services(cluster_name)
+        except Exception as e:
+            return "An error occurred while fetching the data:\n" + str(e), 500
     else:
         return "Credentials expired, please log in again", 403
 

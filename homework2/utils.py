@@ -17,21 +17,7 @@ def camel_case_to_snake_case(string: str) -> str:
 
 
 def validate_credentials() -> bool:
-    if _credentials != {}:
-        try:
-            # Dummy request just to check if an error occurs.
-            client = boto3.client(
-                'ecs',
-                region_name=_credentials["aws_region"],
-                aws_access_key_id=_credentials["aws_access_key_id"],
-                aws_secret_access_key=_credentials["aws_secret_access_key"],
-            )
-            client.list_clusters()
-            return True
-        except botocore.exceptions.ClientError:
-            return False
-    else:
-        return False
+    return _credentials != {}
 
 
 def list_ecs_clusters() -> dict:
@@ -104,54 +90,6 @@ def list_ecs_services(cluster: str) -> dict:
     return result
 
 
-def get_bucket_details_limited(bucket_name: str, client) -> dict:
-    object_count, total_size = 0, 0
-    continuation_token = ''
-    while True:
-        if not continuation_token:
-            response = client.list_objects_v2(
-                bucket=bucket_name,
-            )
-        else:
-            response = client.list_object_v2(
-                bucket=bucket_name,
-                continuationToken=continuation_token
-            )
-        for obj in response['Contents']:
-            object_count += 1
-            total_size += obj['Size']
-        if response['IsTruncated']:
-            continuation_token = response['NextContinuationToken']
-        else:
-            break
-    return {
-        'object_count': object_count,
-        'total_size_bytes': total_size,
-    }
-
-
-def list_s3_buckets() -> dict:
-    client = boto3.client(
-        's3',
-        region_name=_credentials["aws_region"],
-        aws_access_key_id=_credentials["aws_access_key_id"],
-        aws_secret_access_key=_credentials["aws_secret_access_key"],
-    )
-    response = client.list_buckets()
-    buckets = response['Buckets']
-    result = []
-    for bucket in buckets:
-        bucket_details = get_bucket_details_limited(bucket['Name'], client)
-        bucket_details['creation_date'] = bucket['CreationDate']
-        versioning = client.get_bucket_versioning(Bucket=bucket['Name'])['Status']
-        bucket_details['versioning_enabled'] = versioning == 'Enabled'
-        public_access = client.get_public_access_block(Bucket=bucket['Name'])
-        # TODO: Determine what public access means for the project
-        print(bucket_details)
-        result.append(bucket_details)
-    return {'buckets': result}
-
-
 def initialize_credentials(access_key: str, secret_key: str, region: str) -> None:
     _credentials["aws_access_key_id"] = access_key
     _credentials["aws_secret_access_key"] = secret_key
@@ -172,4 +110,4 @@ if __name__ == "__main__":
         _credentials["aws_secret_access_key"] = input("Please enter secret access key: ")
         _credentials["aws_region"] = input("Please enter AWS region: ")
 
-    list_s3_buckets()
+    print(list_ecs_clusters())
